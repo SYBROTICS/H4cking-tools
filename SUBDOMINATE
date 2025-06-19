@@ -1,0 +1,60 @@
+
+---
+
+## 📜 `subdominate.sh` (Main Script)
+
+```bash
+#!/bin/bash
+
+domain=$1
+timestamp=$(date +"%Y%m%d-%H%M%S")
+output="results/$domain-$timestamp.txt"
+mkdir -p results
+
+function banner() {
+  echo "  ____        _     ____                        _       "
+  echo " / ___|  ___ | | __|  _ \ ___  ___ ___  _ __ __| | ___  "
+  echo " \___ \ / _ \| |/ /| |_) / _ \/ __/ _ \| '__/ _\` |/ _ \ "
+  echo "  ___) | (_) |   < |  _ <  __/ (_| (_) | | | (_| |  __/ "
+  echo " |____/ \___/|_|\_\|_| \_\___|\___\___/|_|  \__,_|\___| "
+  echo "       SubDominate - Advanced Bash Subdomain Enum"
+}
+
+function passive_enum() {
+  echo "[*] Passive enumeration on $domain"
+  curl -s "https://crt.sh/?q=%25.$domain&output=json" | jq -r '.[].name_value' | sed 's/\*\.//g' | sort -u
+}
+
+function active_enum() {
+  echo "[*] Active bruteforce enumeration..."
+  wordlist="wordlists/common.txt"
+  [ ! -f "$wordlist" ] && echo "[-] Wordlist not found" && exit 1
+  parallel -a "$wordlist" -j50 "dig +short {.}.$domain @8.8.8.8" | grep -Ev '^$'
+}
+
+function resolve_with_resolvers() {
+  echo "[*] Resolving and validating live subdomains..."
+  cat "$output" | sort -u | while read sub; do
+    dig +short @"$(shuf -n 1 resolvers/public-resolvers.txt)" "$sub" | grep -q . && echo "$sub"
+  done
+}
+
+function run_all() {
+  banner
+  echo "[*] Starting enumeration for: $domain"
+  {
+    passive_enum
+    active_enum
+  } | sort -u | tee "$output"
+
+  echo "[*] Resolving subdomains..."
+  resolve_with_resolvers | tee "results/${domain}-resolved-$timestamp.txt"
+  echo "[+] Done. Output saved to results/"
+}
+
+if [ -z "$domain" ]; then
+  echo "Usage: $0 <domain>"
+  exit 1
+fi
+
+run_all
